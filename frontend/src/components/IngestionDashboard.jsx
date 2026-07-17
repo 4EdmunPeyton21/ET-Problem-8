@@ -1,459 +1,295 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
-// ── Colour helpers ────────────────────────────────────────────────────────────
-
-const STAGE_COLOURS = {
-  queued:     '#6366f1',
-  active:     '#3b82f6',
-  completed:  '#22c55e',
-  failed:     '#ef4444',
-  waiting:    '#f59e0b',
-};
-
-const stageIcon = (status) => ({
-  queued:    '⏳',
-  active:    '⚙️',
-  completed: '✅',
-  failed:    '❌',
-  waiting:   '🕐',
-}[status] || '📄');
-
-function formatBytes(bytes) {
-  if (!bytes) return '—';
-  if (bytes < 1024)       return `${bytes} B`;
-  if (bytes < 1024 ** 2)  return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-}
-
-// ── Progress Bar ──────────────────────────────────────────────────────────────
-
-function ProgressBar({ progress, status }) {
-  const colour = STAGE_COLOURS[status] || '#6366f1';
-  return (
-    <div style={{ margin: '8px 0' }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        fontSize: '0.75rem', color: '#94a3b8', marginBottom: 4,
-      }}>
-        <span>{status?.toUpperCase()}</span>
-        <span>{progress}%</span>
-      </div>
-      <div style={{
-        background: '#1e293b', borderRadius: 8, height: 8, overflow: 'hidden',
-      }}>
-        <div style={{
-          width: `${progress}%`,
-          height: '100%',
-          background: colour,
-          borderRadius: 8,
-          transition: 'width 0.4s ease',
-          boxShadow: status === 'active' ? `0 0 8px ${colour}` : 'none',
-        }} />
-      </div>
-    </div>
-  );
-}
-
-// ── Job Card ──────────────────────────────────────────────────────────────────
-
-function JobCard({ job }) {
-  const colour = STAGE_COLOURS[job.status] || '#6366f1';
-  return (
-    <div style={{
-      background: '#0f172a',
-      border: `1px solid ${colour}33`,
-      borderLeft: `3px solid ${colour}`,
-      borderRadius: 10,
-      padding: '14px 16px',
-      marginBottom: 10,
-      transition: 'box-shadow 0.2s',
-    }}>
-      {/* Header row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-        <div>
-          <span style={{ marginRight: 8, fontSize: '1.1rem' }}>{stageIcon(job.status)}</span>
-          <span style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '0.9rem' }}>
-            {job.originalName || job.filename || job.jobId}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {job.mimetype && (
-            <span style={{
-              background: '#1e293b', color: '#94a3b8',
-              borderRadius: 4, padding: '2px 8px', fontSize: '0.7rem',
-            }}>
-              {job.mimetype.split('/').pop().toUpperCase()}
-            </span>
-          )}
-          <span style={{
-            background: `${colour}22`, color: colour,
-            borderRadius: 4, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 600,
-          }}>
-            {job.status?.toUpperCase()}
-          </span>
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <ProgressBar progress={job.progress || 0} status={job.status} />
-
-      {/* Current stage message */}
-      {job.stage && (
-        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-          {job.stage}
-        </p>
-      )}
-
-      {/* Completed stats */}
-      {job.status === 'completed' && job.result && (
-        <div style={{
-          display: 'flex', gap: 16, marginTop: 10,
-          paddingTop: 10, borderTop: '1px solid #1e293b',
-        }}>
-          {[
-            { label: 'Entities', value: job.result.entitiesExtracted },
-            { label: 'Inserted',  value: job.result.entitiesInserted },
-            { label: 'Relations', value: job.result.relationshipsExtracted },
-            { label: 'Text',      value: `${((job.result.textLength || 0) / 1000).toFixed(1)}k chars` },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ textAlign: 'center' }}>
-              <div style={{ fontWeight: 700, color: '#22c55e', fontSize: '1rem' }}>{value ?? '—'}</div>
-              <div style={{ color: '#475569', fontSize: '0.68rem' }}>{label}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Error state */}
-      {job.status === 'failed' && job.error && (
-        <p style={{ margin: '8px 0 0', color: '#fca5a5', fontSize: '0.75rem', fontFamily: 'monospace' }}>
-          {job.error}
-        </p>
-      )}
-
-      {/* Footer: size + time */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        marginTop: 8, color: '#334155', fontSize: '0.7rem',
-      }}>
-        <span>{formatBytes(job.size)}</span>
-        <span>{job.jobId}</span>
-      </div>
-    </div>
-  );
-}
-
-// ── Drop Zone ─────────────────────────────────────────────────────────────────
-
-function DropZone({ onFiles, uploading }) {
-  const [dragging, setDragging] = useState(false);
-  const inputRef = useRef();
-
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length) onFiles(files);
-  }, [onFiles]);
-
-  const handleChange = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length) onFiles(files);
-    e.target.value = '';
-  };
-
-  return (
-    <div
-      onClick={() => !uploading && inputRef.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={handleDrop}
-      style={{
-        border: `2px dashed ${dragging ? '#6366f1' : '#1e293b'}`,
-        borderRadius: 12,
-        padding: '36px 24px',
-        textAlign: 'center',
-        cursor: uploading ? 'not-allowed' : 'pointer',
-        background: dragging ? '#6366f108' : 'transparent',
-        transition: 'all 0.2s',
-        marginBottom: 24,
-      }}
-    >
-      <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📄</div>
-      <p style={{ color: '#94a3b8', margin: '0 0 4px', fontSize: '0.95rem', fontWeight: 500 }}>
-        {uploading ? 'Uploading…' : 'Drop documents here or click to browse'}
-      </p>
-      <p style={{ color: '#475569', margin: 0, fontSize: '0.78rem' }}>
-        PDF · EML · TXT · XLSX · PNG · JPG · TIFF — max 50 MB
-      </p>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept=".pdf,.eml,.msg,.txt,.png,.jpg,.jpeg,.tiff,.csv,.xls,.xlsx"
-        style={{ display: 'none' }}
-        onChange={handleChange}
-        disabled={uploading}
-      />
-    </div>
-  );
-}
-
-// ── Stats Banner ──────────────────────────────────────────────────────────────
-
-function StatsBanner({ jobs }) {
-  const completed = jobs.filter(j => j.status === 'completed');
-  const failed    = jobs.filter(j => j.status === 'failed');
-  const active    = jobs.filter(j => j.status === 'active');
-
-  const totalEntities  = completed.reduce((s, j) => s + (j.result?.entitiesExtracted      || 0), 0);
-  const totalRelations = completed.reduce((s, j) => s + (j.result?.relationshipsExtracted  || 0), 0);
-
-  const stats = [
-    { label: 'Total Jobs',  value: jobs.length,       colour: '#6366f1' },
-    { label: 'Active',      value: active.length,      colour: '#3b82f6' },
-    { label: 'Completed',   value: completed.length,   colour: '#22c55e' },
-    { label: 'Failed',      value: failed.length,      colour: '#ef4444' },
-    { label: 'Entities ✓',  value: totalEntities,      colour: '#a855f7' },
-    { label: 'Relations ✓', value: totalRelations,     colour: '#06b6d4' },
-  ];
-
-  return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 24,
-    }}>
-      {stats.map(({ label, value, colour }) => (
-        <div key={label} style={{
-          background: '#0f172a', border: `1px solid ${colour}33`,
-          borderRadius: 10, padding: '12px 10px', textAlign: 'center',
-        }}>
-          <div style={{ fontWeight: 700, fontSize: '1.4rem', color: colour }}>{value}</div>
-          <div style={{ color: '#64748b', fontSize: '0.7rem', marginTop: 2 }}>{label}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Main Component ────────────────────────────────────────────────────────────
+import { useState, useRef } from 'react';
+import { useSocket } from '../hooks/useSocket';
 
 export default function IngestionDashboard() {
-  const [jobs, setJobs]         = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [error, setError]         = useState(null);
-  const pollerRef                 = useRef({});
+  const fileInputRef = useRef(null);
 
-  // ── Upload files ────────────────────────────────────────────────────────────
+  // ── 1. Socket.io Event Handlers ─────────────────────────────────────────────
+  useSocket({
+    'ingestion:progress': (data) => {
+      console.log('Socket progress:', data);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === data.jobId
+            ? {
+                ...doc,
+                progress: data.progress,
+                status: data.progress === 100 ? 'completed' : 'processing',
+                stage: data.stage,
+              }
+            : doc
+        )
+      );
+    },
+    'ingestion:completed': (data) => {
+      console.log('Socket completed:', data);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === data.jobId
+            ? {
+                ...doc,
+                progress: 100,
+                status: 'completed',
+                entitiesCount: data.entitiesExtracted || 0,
+                stage: 'Completed successfully',
+              }
+            : doc
+        )
+      );
+    },
+    'ingestion:complete': (data) => {
+      console.log('Socket complete:', data);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === data.jobId
+            ? {
+                ...doc,
+                progress: 100,
+                status: 'completed',
+                entitiesCount: data.entitiesExtracted || 0,
+                stage: 'Completed successfully',
+              }
+            : doc
+        )
+      );
+    },
+    'ingestion:error': (data) => {
+      console.log('Socket error:', data);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === data.jobId
+            ? {
+                ...doc,
+                status: 'failed',
+                error: data.error || 'Extraction failed',
+                stage: 'Failed',
+              }
+            : doc
+        )
+      );
+    },
+    'ingestion:failed': (data) => {
+      console.log('Socket failed:', data);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === data.jobId
+            ? {
+                ...doc,
+                status: 'failed',
+                error: data.error || 'Extraction failed',
+                stage: 'Failed',
+              }
+            : doc
+        )
+      );
+    },
+  });
 
-  const uploadFiles = useCallback(async (files) => {
+  // ── 2. Fallback HTTP Polling ────────────────────────────────────────────────
+  const startPolling = (documentId) => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/documents/${documentId}/status`);
+        if (!res.ok) {
+          clearInterval(interval);
+          return;
+        }
+
+        const data = await res.json();
+
+        setDocuments((prev) =>
+          prev.map((doc) => {
+            if (doc.id === documentId) {
+              const isTerminal = data.status === 'completed' || data.status === 'failed';
+              if (isTerminal) clearInterval(interval);
+
+              return {
+                ...doc,
+                progress: Math.max(doc.progress, data.progress || 0),
+                status: data.status,
+                entitiesCount: data.entitiesExtracted || doc.entitiesCount,
+                error: data.errors?.length ? data.errors.join(', ') : doc.error,
+              };
+            }
+            return doc;
+          })
+        );
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 1500);
+  };
+
+  // ── 3. File Upload Handler ──────────────────────────────────────────────────
+  const handleUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
     setUploading(true);
-    setError(null);
 
     for (const file of files) {
       try {
         const formData = new FormData();
-        formData.append('document', file);
+        formData.append('file', file); // Enforce 'file' field per prompt contract
 
-        const res  = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: formData });
+        const res = await fetch('/api/documents/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
 
-        if (!res.ok) throw new Error(data.error || `Upload failed: ${res.status}`);
-
-        // Add job to local state immediately
-        const newJob = {
-          jobId:        data.jobId,
-          bullJobId:    data.bullJobId,
-          originalName: file.name,
-          filename:     data.filename,
-          mimetype:     file.type,
-          size:         file.size,
-          status:       'queued',
-          progress:     0,
-          stage:        'Queued…',
-          result:       null,
+        const newDoc = {
+          id: data.documentId,
+          name: file.name,
+          progress: 0,
+          status: 'processing',
+          entitiesCount: 0,
+          error: null,
+          stage: 'Queued…',
         };
 
-        setJobs(prev => [newJob, ...prev]);
+        setDocuments((prev) => [newDoc, ...prev]);
 
-        // Start polling for this job
-        startPolling(data.jobId);
-
+        // Start fallback poller
+        startPolling(data.documentId);
       } catch (err) {
-        setError(`Upload failed for "${file.name}": ${err.message}`);
+        console.error('Upload error:', err);
+        alert(`Failed to upload ${file.name}: ${err.message}`);
       }
     }
 
     setUploading(false);
-  }, []);
+    e.target.value = ''; // Reset input
+  };
 
-  // ── Job progress polling ────────────────────────────────────────────────────
-
-  const startPolling = useCallback((jobId) => {
-    if (pollerRef.current[jobId]) return; // already polling
-
-    const interval = setInterval(async () => {
-      try {
-        const res  = await fetch(`${API_BASE}/documents/status/${jobId}`);
-        const data = await res.json();
-
-        if (!res.ok || data.status === 'not_found') {
-          clearInterval(interval);
-          delete pollerRef.current[jobId];
-          return;
-        }
-
-        setJobs(prev => prev.map(j =>
-          j.jobId === jobId
-            ? {
-                ...j,
-                status:   data.status,
-                progress: data.progress || j.progress,
-                result:   data.result   || j.result,
-                error:    data.failReason,
-              }
-            : j
-        ));
-
-        // Stop polling when terminal state is reached
-        if (data.status === 'completed' || data.status === 'failed') {
-          clearInterval(interval);
-          delete pollerRef.current[jobId];
-        }
-
-      } catch {
-        // Network errors during polling — silently continue
-      }
-    }, 2000); // poll every 2 seconds
-
-    pollerRef.current[jobId] = interval;
-  }, []);
-
-  // Cleanup pollers on unmount
-  useEffect(() => {
-    return () => Object.values(pollerRef.current).forEach(clearInterval);
-  }, []);
-
-  // ── Filter tabs ─────────────────────────────────────────────────────────────
-
-  const [filter, setFilter] = useState('all');
-  const FILTERS = ['all', 'active', 'completed', 'failed', 'queued'];
-
-  const visibleJobs = filter === 'all'
-    ? jobs
-    : jobs.filter(j => j.status === filter);
-
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Helper Icon Resolution ──────────────────────────────────────────────────
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'completed': return <span className="text-emerald-500 font-bold">✓</span>;
+      case 'failed':    return <span className="text-rose-500 font-bold">✗</span>;
+      default:          return <span className="text-amber-500 animate-pulse font-bold">⏳</span>;
+    }
+  };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #020617 0%, #0f172a 60%, #1e1b4b 100%)',
-      fontFamily: "'Inter', -apple-system, sans-serif",
-      color: '#e2e8f0',
-      padding: '32px 24px',
-    }}>
-      <div style={{ maxWidth: 900, margin: '0 auto' }}>
-
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-8 flex justify-center">
+      <div className="w-full max-w-3xl">
+        
         {/* Header */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <span style={{ fontSize: '2rem' }}>🏭</span>
-            <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: '#f1f5f9' }}>
-              Document Ingestion Dashboard
-            </h1>
-          </div>
-          <p style={{ margin: 0, color: '#64748b', fontSize: '0.88rem' }}>
-            Upload industrial documents (PDFs, emails, spreadsheets, diagrams) — NER extraction and graph ingestion run automatically in the background.
+        <div className="mb-8 text-center sm:text-left">
+          <h1 className="text-3xl font-extrabold tracking-tight text-white mb-2">
+            Industrial Ingest
+          </h1>
+          <p className="text-slate-400 text-sm">
+            Drag & drop or upload text logs, procedures, diagrams, or emails to build the Neo4j knowledge graph.
           </p>
         </div>
 
-        {/* Stats banner */}
-        {jobs.length > 0 && <StatsBanner jobs={jobs} />}
-
-        {/* Drop zone */}
-        <DropZone onFiles={uploadFiles} uploading={uploading} />
-
-        {/* Error banner */}
-        {error && (
-          <div style={{
-            background: '#450a0a', border: '1px solid #ef4444', borderRadius: 8,
-            padding: '12px 16px', marginBottom: 16, color: '#fca5a5', fontSize: '0.85rem',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            <span>⚠️ {error}</span>
-            <button onClick={() => setError(null)} style={{
-              background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '1.1rem',
-            }}>×</button>
-          </div>
-        )}
-
-        {/* Filter tabs */}
-        {jobs.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            {FILTERS.map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                style={{
-                  background: filter === f ? '#6366f1' : '#0f172a',
-                  border: `1px solid ${filter === f ? '#6366f1' : '#1e293b'}`,
-                  borderRadius: 6, padding: '5px 14px',
-                  color: filter === f ? '#fff' : '#94a3b8',
-                  fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
-                  textTransform: 'capitalize', transition: 'all 0.15s',
-                }}
-              >
-                {f} {f !== 'all' && `(${jobs.filter(j => j.status === f).length})`}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Job list */}
-        {visibleJobs.length === 0 ? (
-          <div style={{
-            textAlign: 'center', padding: '48px 24px',
-            color: '#334155', fontSize: '0.9rem',
-          }}>
-            {jobs.length === 0
-              ? 'No documents uploaded yet. Drop files above to begin.'
-              : `No ${filter} jobs.`}
-          </div>
-        ) : (
-          <div>
-            {visibleJobs.map(job => (
-              <JobCard key={job.jobId} job={job} />
-            ))}
-          </div>
-        )}
-
-        {/* Pipeline legend */}
-        <div style={{
-          marginTop: 32, padding: '16px 20px',
-          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10,
-        }}>
-          <p style={{ margin: '0 0 10px', fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
-            INGESTION PIPELINE
+        {/* Upload Input Control */}
+        <div 
+          onClick={() => !uploading && fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200 mb-8 ${
+            uploading 
+              ? 'border-slate-800 bg-slate-900/30 cursor-not-allowed' 
+              : 'border-slate-800 hover:border-slate-700 bg-slate-950'
+          }`}
+        >
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleUpload} 
+            multiple 
+            accept=".pdf,.eml,.csv,.txt" 
+            className="hidden" 
+            disabled={uploading}
+          />
+          <div className="text-4xl mb-3">📥</div>
+          <p className="font-semibold text-slate-300">
+            {uploading ? 'Processing files…' : 'Upload industrial logs'}
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap' }}>
-            {[
-              { pct: '10%',  label: 'Parse Doc',       colour: '#6366f1' },
-              { pct: '30%',  label: 'NER Entities',    colour: '#3b82f6' },
-              { pct: '50%',  label: 'Relationships',   colour: '#a855f7' },
-              { pct: '70%',  label: 'Neo4j Graph',     colour: '#06b6d4' },
-              { pct: '100%', label: 'Complete',        colour: '#22c55e' },
-            ].map(({ pct, label, colour }, i) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center' }}>
-                {i > 0 && <span style={{ color: '#334155', margin: '0 4px', fontSize: '0.75rem' }}>→</span>}
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.65rem', color: colour, fontWeight: 700 }}>{pct}</div>
-                  <div style={{ fontSize: '0.65rem', color: '#475569' }}>{label}</div>
+          <p className="text-xs text-slate-500 mt-1">
+            Accepts PDF · EML · CSV · TXT (max 50MB)
+          </p>
+        </div>
+
+        {/* Document Tracker List */}
+        <div>
+          <h2 className="text-lg font-bold text-slate-300 mb-4 flex items-center gap-2">
+            <span>Documents</span>
+            {documents.length > 0 && (
+              <span className="bg-slate-900 text-slate-400 text-xs px-2 py-0.5 rounded-full font-medium">
+                {documents.length}
+              </span>
+            )}
+          </h2>
+
+          {documents.length === 0 ? (
+            <div className="text-center py-12 text-slate-600 border border-slate-900 rounded-xl bg-slate-950/20">
+              No files uploaded yet. Select files above to begin parsing.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {documents.map((doc) => (
+                <div 
+                  key={doc.id} 
+                  className="bg-slate-900/40 border border-slate-900 rounded-xl p-5 hover:border-slate-800/80 transition-all duration-150"
+                >
+                  {/* Title & Metadata */}
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="pr-4">
+                      <h3 className="font-semibold text-slate-200 text-sm break-all">
+                        {doc.name}
+                      </h3>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5">{doc.id}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {doc.entitiesCount > 0 && (
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-900/30">
+                          {doc.entitiesCount} entities
+                        </span>
+                      )}
+                      <span className="text-sm">{getStatusIcon(doc.status)}</span>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden mb-2">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        doc.status === 'completed' 
+                          ? 'bg-emerald-500' 
+                          : doc.status === 'failed' 
+                          ? 'bg-rose-500' 
+                          : 'bg-indigo-500'
+                      }`}
+                      style={{ width: `${doc.progress}%` }}
+                    />
+                  </div>
+
+                  {/* Footer status stage or errors */}
+                  <div className="flex justify-between items-center text-xs text-slate-500">
+                    <span>
+                      {doc.status === 'completed' && 'Ingestion complete'}
+                      {doc.status === 'failed' && <span className="text-rose-400 font-medium">Failed</span>}
+                      {doc.status === 'processing' && (doc.stage || 'Ingesting…')}
+                    </span>
+                    <span>{doc.progress}%</span>
+                  </div>
+
+                  {/* Error block */}
+                  {doc.error && (
+                    <div className="mt-3 bg-rose-950/20 border border-rose-900/20 text-rose-300 text-xs p-3 rounded-lg font-mono break-all">
+                      {doc.error}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>

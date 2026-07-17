@@ -350,10 +350,11 @@ function attachSocketIO(io) {
  * Add a document to the ingestion queue.
  *
  * @param {Object} fileInfo - { filePath, filename, originalName, mimetype }
+ * @param {string|null} forcedJobId - Optional pre-generated job ID
  * @returns {Promise<{jobId, queuePosition}>}
  */
-async function enqueueDocument(fileInfo) {
-    const jobId = `DOC-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+async function enqueueDocument(fileInfo, forcedJobId = null) {
+    const jobId = forcedJobId || `DOC-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
     const job = await ingestionQueue.add(
         { ...fileInfo, jobId },
