@@ -1,12 +1,15 @@
 import { NavLink } from 'react-router-dom';
 import { useUIStore } from '../../stores/uiStore';
-import { LayoutGrid, UploadCloud, Cpu, FileSearch, Radio } from 'lucide-react';
+import { LayoutGrid, UploadCloud, Cpu, FileSearch, Radio, Share2, AlertOctagon, Mail } from 'lucide-react';
 
 const LINKS = [
   { to: '/', label: 'Dashboard', icon: LayoutGrid, end: true },
   { to: '/ingestion', label: 'Ingestion', icon: UploadCloud },
   { to: '/equipment', label: 'Equipment', icon: Cpu },
   { to: '/rca', label: 'RCA Assistant', icon: FileSearch },
+  { to: '/graph', label: 'Knowledge Graph', icon: Share2 },
+  { to: '/anomalies', label: 'Anomaly Alerts', icon: AlertOctagon },
+  { to: '/emails', label: 'Email Threads', icon: Mail },
 ];
 
 export const Sidebar = () => {

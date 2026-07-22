@@ -12,6 +12,9 @@ const matchMockEndpoint = (endpoint) => {
   if (endpoint.startsWith('/documents')) return '/documents';
   if (endpoint.match(/^\/equipment\/[^/]+\/history/)) return '/equipment/:id/history';
   if (endpoint.startsWith('/equipment')) return '/equipment';
+  if (endpoint.match(/^\/graph\/equipment\/[^/]+\/visualization/)) return '/graph/equipment/:id/visualization';
+  if (endpoint.startsWith('/anomalies')) return '/anomalies';
+  if (endpoint.match(/^\/emails\/thread\//)) return '/emails/thread/:threadId';
   return null;
 };
 
@@ -30,6 +33,10 @@ export const apiClient = {
           params.jobId = endpoint.split('/').pop();
         } else if (mockKey === '/equipment/:id/history') {
           params.id = endpoint.split('/')[2];
+        } else if (mockKey === '/graph/equipment/:id/visualization') {
+          params.id = endpoint.split('/')[3];
+        } else if (mockKey === '/emails/thread/:threadId') {
+          params.threadId = endpoint.split('/').pop();
         }
 
         // FormData bodies (file upload) are passed through as-is; JSON bodies are parsed.

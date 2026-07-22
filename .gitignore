@@ -13,9 +13,10 @@ dist/
 build/
 frontend/dist/
 
-# Uploads and temporary test files
-backend/uploads/
-backend/uploads/samples/
+# Uploads and temporary test files (but keep the seed sample docs)
+backend/uploads/*
+!backend/uploads/samples/
+!backend/uploads/samples/**
 
 # Logs
 npm-debug.log*

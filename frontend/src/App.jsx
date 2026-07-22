@@ -8,6 +8,9 @@ import { IngestionDashboard } from './pages/IngestionDashboard';
 import { EquipmentList } from './pages/EquipmentList';
 import { EquipmentDetail } from './pages/EquipmentDetail';
 import { RCAAssistant } from './pages/RCAAssistant';
+import { KnowledgeGraph } from './pages/KnowledgeGraph';
+import { AnomalyAlerts } from './pages/AnomalyAlerts';
+import { EmailThreadTimeline } from './pages/EmailThreadTimeline';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +32,9 @@ function App() {
             <Route path="equipment" element={<EquipmentList />} />
             <Route path="equipment/:id" element={<EquipmentDetail />} />
             <Route path="rca" element={<RCAAssistant />} />
+            <Route path="graph" element={<KnowledgeGraph />} />
+            <Route path="anomalies" element={<AnomalyAlerts />} />
+            <Route path="emails" element={<EmailThreadTimeline />} />
           </Route>
         </Routes>
       </BrowserRouter>

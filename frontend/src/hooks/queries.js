@@ -27,6 +27,32 @@ export function useEquipmentHistory(id) {
   });
 }
 
+export function useEquipmentGraph(id) {
+  return useQuery({
+    queryKey: ['equipmentGraph', id],
+    queryFn: () => apiClient.request(`/graph/equipment/${id}/visualization`),
+    enabled: !!id,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useAnomalies() {
+  return useQuery({
+    queryKey: ['anomalies'],
+    queryFn: () => apiClient.request('/anomalies'),
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useEmailThread(threadId) {
+  return useQuery({
+    queryKey: ['emailThread', threadId],
+    queryFn: () => apiClient.request(`/emails/thread/${threadId}`),
+    enabled: !!threadId,
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
 export function useRCAAnalysis() {
   const addToast = useUIStore((state) => state.addToast);
 

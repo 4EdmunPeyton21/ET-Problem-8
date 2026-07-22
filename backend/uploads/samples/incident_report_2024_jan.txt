@@ -1,0 +1,34 @@
+INCIDENT REPORT — January 2024
+Facility: Unit A Process Plant
+Equipment: PUMP-101 (Centrifugal Pump, Cooling Water Circuit)
+
+Summary:
+On 2024-01-14, operators reported abnormal vibration and rising bearing
+temperature on PUMP-101. A vibration reading of 11.8 mm/s RMS was recorded
+against a normal baseline of 3.5 mm/s RMS. Bearing temperature reached 92°C.
+
+Investigation:
+Maintenance technician J. Alvarez inspected the pump on 2024-01-15. Findings
+indicated insufficient lubrication at the drive-end bearing, with visible
+discoloration consistent with overheating. No signs of cavitation or
+misalignment were found on initial inspection.
+
+Root Cause:
+Insufficient lubrication due to a missed entry on the monthly lubrication
+schedule. The last recorded lubrication event was 47 days prior, exceeding
+the 30-day preventive maintenance interval for this equipment class.
+
+Corrective Action:
+- Performed emergency relubrication of drive-end and non-drive-end bearings.
+- Replaced worn bearing seal.
+- Restored vibration to 3.9 mm/s RMS and bearing temperature to 58°C.
+
+Preventive Measures:
+- Added PUMP-101 to the automated lubrication reminder system.
+- Scheduled quarterly vibration analysis for all Unit A centrifugal pumps.
+- Updated procedure "Monthly Lubrication Check" to include a supervisor
+  sign-off step to prevent missed intervals.
+
+Related Equipment: MOTOR-204 (drive motor, same skid, no anomalies found)
+Severity: HIGH
+Status: RESOLVED
