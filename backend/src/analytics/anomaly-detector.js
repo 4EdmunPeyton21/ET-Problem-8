@@ -169,13 +169,24 @@ class AnomalyDetector {
                 date:            rec.date,
                 severity:        rec.severity,
                 description:     rec.description,
-                mtbf:            mtbf !== null ? mtbf : 999, // 999 = first record / no prior
+                mtbf:            mtbf, // null for the first record — backfilled below
                 mttr:            mttr,
                 cost:            cost,
                 failureCount:    1,
                 technicianCount: techCount,
                 severityScore:   severityScore,
             });
+        }
+
+        // Backfill the first record's mtbf (no prior failure to diff against) by
+        // assuming the same cadence as the very next gap, not a magic constant —
+        // a hardcoded sentinel like 999 (or a whole-history average landing between
+        // an equipment's "normal" and "degrading" periods) would itself become the
+        // most isolated value in the feature matrix and dominate Isolation Forest's
+        // ranking regardless of the real pattern.
+        const nextKnownGap = features.find(f => f.mtbf !== null)?.mtbf ?? 30;
+        for (const f of features) {
+            if (f.mtbf === null) f.mtbf = nextKnownGap;
         }
 
         // Add a failureCount feature: rolling 30-day window
@@ -189,6 +200,46 @@ class AnomalyDetector {
         }
 
         return features;
+    }
+
+    // ── Z-score Computation ───────────────────────────────────────────────────
+
+    /**
+     * Compute per-feature z-scores across this equipment's own history, keyed
+     * by feature index. The Python bridge only returns a boolean anomaly flag
+     * per record (see runPythonScript), never the z-scores classifyAnomaly()
+     * needs to pick a TYPE — without this, every flagged anomaly falls through
+     * to the same default classification regardless of what's actually unusual
+     * about it. mtbf is inverted (a LOW mtbf — frequent failures — is what's
+     * bad), the rest use a standard z-score (high is bad).
+     *
+     * @param {Array} features
+     * @returns {Object<number, Object>} index → { mtbf, mttr, cost, failureCount, technicianCount }
+     */
+    _computeZScores(features) {
+        const zscoresByIndex = {};
+        const fields = ['mtbf', 'mttr', 'cost', 'failureCount', 'technicianCount'];
+
+        const stats = {};
+        for (const field of fields) {
+            const values = features.map(f => f[field] || 0);
+            const mean   = values.reduce((a, b) => a + b, 0) / values.length;
+            const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+            stats[field] = { mean, stddev: Math.sqrt(variance) };
+        }
+
+        for (const f of features) {
+            const z = {};
+            for (const field of fields) {
+                const { mean, stddev } = stats[field];
+                if (stddev === 0) { z[field] = 0; continue; }
+                const raw = (f[field] - mean) / stddev;
+                z[field] = field === 'mtbf' ? -raw : raw; // low mtbf = bad, so invert
+            }
+            zscoresByIndex[f.index] = z;
+        }
+
+        return zscoresByIndex;
     }
 
     // ── Python Subprocess Communication ──────────────────────────────────────
@@ -319,12 +370,9 @@ class AnomalyDetector {
      * @returns {string} SEVERITY value
      */
     calculateSeverity(feature, type, score) {
-        // Use IsolationForest score as primary signal (< -0.5 = very anomalous)
-        if (score < -0.7)     return SEVERITY.CRITICAL;
-        if (score < -0.5)     return SEVERITY.HIGH;
-        if (score < -0.3)     return SEVERITY.MEDIUM;
-
-        // Domain-specific overrides
+        // Domain-specific thresholds first — the actual mtbf/mttr numbers are a more
+        // reliable signal than the Isolation Forest score, which (via the current
+        // Python bridge) is a fixed placeholder rather than a real per-record score.
         if (type === ANOMALY_TYPES.FREQUENT_FAILURES) {
             if (feature.mtbf < THRESHOLDS.MTBF_CRITICAL_DAYS) return SEVERITY.CRITICAL;
             if (feature.mtbf < THRESHOLDS.MTBF_HIGH_DAYS)     return SEVERITY.HIGH;
@@ -334,6 +382,11 @@ class AnomalyDetector {
             if (feature.mttr > THRESHOLDS.MTTR_HIGH_HOURS)     return SEVERITY.HIGH;
         }
         if (type === ANOMALY_TYPES.CASCADING_FAILURE) return SEVERITY.CRITICAL;
+
+        // Fall back to the Isolation Forest score when no domain rule applies.
+        if (score < -0.7) return SEVERITY.CRITICAL;
+        if (score < -0.5) return SEVERITY.HIGH;
+        if (score < -0.3) return SEVERITY.MEDIUM;
 
         return SEVERITY.LOW;
     }
@@ -434,13 +487,15 @@ class AnomalyDetector {
         }
 
         // ── Step 4: Classify and enrich each anomaly ───────────────────────────
+        const zscoresByIndex = this._computeZScores(features);
         const anomalyResults = [];
 
         for (const pyAnomaly of (pythonResult.anomalies || [])) {
             if (!pyAnomaly.isAnomaly) continue;
 
             const feature  = features[pyAnomaly.index] || {};
-            const type     = this.classifyAnomaly(feature, pyAnomaly.zscores || {});
+            const zscores  = zscoresByIndex[pyAnomaly.index] || pyAnomaly.zscores || {};
+            const type     = this.classifyAnomaly(feature, zscores);
             const severity = this.calculateSeverity(feature, type, pyAnomaly.score);
             const recommendation = this.getRecommendation(feature, type);
 
@@ -453,7 +508,7 @@ class AnomalyDetector {
                 severity,
                 recommendation,
                 score:          pyAnomaly.score,
-                zscores:        pyAnomaly.zscores || {},
+                zscores,
                 reason:         pyAnomaly.reason  || '',
                 feature: {
                     mtbf:           feature.mtbf,
