@@ -446,7 +446,7 @@ Be specific and technical. Reference equipment IDs, parameters, and standards wh
 
     // ── Result Normalization ──────────────────────────────────────────────────
 
-    _normalizeResult(raw, symptomDescription, similarIncidents) {
+    _normalizeResult(raw, symptomDescription, similarIncidents, provider) {
         const likelihood = v => LIKELIHOOD_LEVELS.includes(v) ? v : 'MEDIUM';
         const confidence = v => CONFIDENCE_LEVELS.includes(v) ? v : 'MEDIUM';
 
@@ -467,7 +467,7 @@ Be specific and technical. Reference equipment IDs, parameters, and standards wh
             diagnosticSteps:            raw.diagnosticSteps   || [],
             preventiveMeasures:         raw.preventiveMeasures || [],
             confidenceLevel:            confidence(raw.confidenceLevel),
-            provider:                   this.provider || 'heuristic',
+            provider:                   provider || 'heuristic',
             analysisTimestamp:          new Date().toISOString(),
         };
     }
@@ -500,6 +500,7 @@ Be specific and technical. Reference equipment IDs, parameters, and standards wh
 
         // ── Step 2: Reason about root causes ─────────────────────────────────
         let rawResult;
+        let actualProvider = this.provider || 'heuristic';
         try {
             if (this.provider === 'groq') {
                 rawResult = await this._reasonWithGroq(symptomDescription, equipmentId, equipmentHistory, similarIncidents);
@@ -511,10 +512,11 @@ Be specific and technical. Reference equipment IDs, parameters, and standards wh
         } catch (error) {
             console.error('[RCAAgent] LLM reasoning failed, falling back to heuristic:', error.message);
             rawResult = this._heuristicRCA(symptomDescription, similarIncidents);
+            actualProvider = 'heuristic';
         }
 
         // ── Step 3: Normalize and return ─────────────────────────────────────
-        const result = this._normalizeResult(rawResult, symptomDescription, similarIncidents);
+        const result = this._normalizeResult(rawResult, symptomDescription, similarIncidents, actualProvider);
 
         console.log(`[RCAAgent] Done. ${result.probableRootCauses.length} root causes, confidence: ${result.confidenceLevel}`);
         return result;
